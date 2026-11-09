@@ -1,0 +1,6 @@
+/target
+Cargo.toml.orig
+*.pdb
+*.log
+.vscode/
+scratch/
