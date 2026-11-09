@@ -4,16 +4,18 @@ Pin It is a background process for Windows 11 (no console window, not a service)
 
 ## Download (Windows)
 
-Each release on GitHub has two files:
+Each release on GitHub has the installer, the portable exe and a `.sha256` file for each of them:
 
-- `PinIt-Setup.exe`: the installer. It installs for the current user without administrator rights into `%LOCALAPPDATA%\Programs\Pin It`, adds a Start menu entry, and lists Pin It under Settings > Apps > Installed apps, where it can be uninstalled. A running Pin It is closed first, so an upgrade over an existing install works. The uninstaller asks whether the settings and the log in `%APPDATA%\PinIt` should be deleted; the default is No.
+- `PinIt-Setup.exe`: the installer. It installs for the current user without administrator rights into `%LOCALAPPDATA%\Programs\Pin It`, adds a Start menu entry, and lists Pin It under Settings > Apps > Installed apps, where it can be uninstalled. A running Pin It is closed first, so an upgrade over an existing install works. The installer does not require Windows 11 and should also run on Windows 10, but only Windows 11 is tested.
 - `PinIt.exe`: the same program as a single file. It needs no installation and can be run from any folder.
 
-The files `PinIt-Setup.exe.sha256` and `PinIt.exe.sha256` next to them allow verifying a download. The programs are not code-signed, so Windows SmartScreen warns about them; choose "More info" > "Run anyway".
+`PinIt-Setup.exe.sha256` and `PinIt.exe.sha256` allow verifying a download (`Get-FileHash <file> -Algorithm SHA256` in PowerShell). The programs are not code-signed, so Windows SmartScreen warns about them; choose "More info" > "Run anyway".
 
 Pin It does not start with Windows by default. Turn on "Start with Windows" in the tray menu; the installer does not set this. Settings, log and pins are stored in `%APPDATA%\PinIt` for both files (see "Files in `%APPDATA%\PinIt`" below).
 
-To publish a release, set `version` in `Cargo.toml`, commit it, then push a tag with the same number: `git tag v0.1.0 && git push origin v0.1.0`. The `release.yml` workflow builds the exe and the installer and attaches both, with their checksums, to the release.
+### Uninstall
+
+Remove Pin It under Settings > Apps > Installed apps. The uninstaller closes a running Pin It and asks whether to delete the settings and the log in `%APPDATA%\PinIt`; the default is No, and a silent uninstall keeps them. Portable copies and other installs use the same folder, so answer Yes only if no other copy is in use. Delete the portable `PinIt.exe` by hand.
 
 ## Behavior
 
@@ -96,7 +98,7 @@ Labels are built in `menu_model` in `src/tray/model.rs`. The first line is the t
 - Colors: Use window color, Fixed accent color..., Reset fixed color
 - Animation
 - Button size... (opens the size dial)
-- Hotkey: None (off), Ctrl+Alt+P, Ctrl+Shift+P, Shift+Win+P, Ctrl+Alt+Shift+P
+- Hotkey: None (off), Ctrl+Alt+P, Ctrl+Shift+P, Shift+Win+P, Ctrl+Alt+Shift+P (four fixed presets; any other combination is set in the settings file)
 - Excluded apps... (opens the excluded apps window)
 - Start with Windows
 - Unpin all
@@ -112,7 +114,7 @@ If the tray icon cannot be added, it is retried every sweep. When Explorer resta
 The hotkey is off by default and nothing is registered until one is chosen, in the tray menu or in the settings file. It acts on the foreground window.
 
 - Valid: a key (virtual-key code 1 to 254) with Ctrl, Alt or Win, or Shift together with F1 to F24. Invalid values in the file are dropped.
-- Example in the settings file: `"hotkey": {"ctrl": true, "alt": true, "shift": false, "win": false, "vk": 80}` (80 = P).
+- Presets in the tray menu are the four listed above. Any other combination goes into the settings file. Example: `"hotkey": {"ctrl": true, "alt": true, "shift": false, "win": false, "vk": 80}` (80 = P).
 - If registration fails (combination taken), the previous hotkey is registered again, or none, and the settings are changed to match.
 - The hotkey and the tray command do not pin windows of elevated programs, excluded apps, or Pin It's own windows.
 
@@ -130,9 +132,9 @@ File: `%APPDATA%\PinIt\settings.json`.
 | `animate` | true | animations; off makes everything instant |
 | `autostart` | false | writes a `PinIt` value to `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` |
 | `button_scale_percent` | 100 | clamped to 50..200; the dial offers 50 to 150 |
-| `dial_click_sound` | true | quiet click on every detent of the dial (edit in the file) |
+| `dial_click_sound` | true | quiet click on every detent of the dial (settings file only) |
 | `excluded_apps` | [] | lowercase exe names without a button; edited in the excluded apps window |
-| `per_app_accent` | {} | exe name to `[r, g, b]`; wins over the other accent settings |
+| `per_app_accent` | {} | exe name to `[r, g, b]`; wins over the other accent settings (settings file only) |
 
 The field `border` no longer exists. Old files that contain it still load; unknown fields are ignored.
 
@@ -165,7 +167,7 @@ Settings, log and `pins.json` are not written when the file or its folder is a j
 - Fullscreen games are not treated specially.
 - Pins are kept while a window is hidden, minimized or on another virtual desktop; only its button is hidden.
 - Display and DPI changes are picked up by the next 2 second sweep.
-- Windows 11 is the tested system. Windows 10 is untested.
+- Windows 11 is the tested system. Windows 10 is untested, for the installer too.
 
 ## Development
 
@@ -183,7 +185,24 @@ Settings, log and `pins.json` are not written when the file or its folder is a j
   - `z_order` (src/zorder/real_windows.rs): z-order behavior on private test windows.
   - `hung_target_returns_hung_without_blocking` (src/zorder/tests.rs): a PowerShell window with a sleeping UI thread must give `Hung` without blocking.
   - `busy_target_unpin_is_queued_and_applied_after_resume` (src/zorder/tests.rs): unpin of a busy window returns at once and takes effect after it resumes.
+  - `real_caption_ink_matches_the_screen` (src/color/ink_validation.rs): compares the ink color chosen for real caption bars with the screen pixels.
+  - `pin_of_window_shown_without_activation` and `pin_of_foreign_windows_shown_without_activation` (src/zorder/real_windows.rs): pin a window that was shown without activation; the second one uses foreign windows.
+  - `opening_and_closing_many_windows_does_not_grow_the_process` (src/app/tests/pb_leak.rs): opens and closes many windows and checks that the process does not grow.
+  - `render_the_wav_and_report_the_pitch_per_window` (src/dial/jingle/tests.rs): renders the dial's sound buffer for inspection (needs `PIN_IT_JINGLE_OUT`).
+- CI (`ci.yml`) runs `cargo fmt --check`, clippy, the release build and the unit tests that create no windows (the module filters are listed in the workflow; a check fails when fewer tests run than expected).
 - `build.rs` embeds `assets/pin_it.rc` (icon, manifest with per-monitor DPI v2, version info) with the `embed-resource` crate.
+
+### Build the installer
+
+Install Inno Setup 6, build the release exe, then run from the repository root:
+
+    ISCC.exe /DAppVersion=0.1.1 installer\pin_it.iss
+
+The result is `installer\Output\PinIt-Setup.exe`. `/DExePath=<path>` uses another `pin_it.exe` than `target\release\pin_it.exe`.
+
+### Publish a release
+
+Set `version` in `Cargo.toml`, commit it, then push a tag with the same number: `git tag v0.1.1 && git push origin v0.1.1`. The `release.yml` workflow checks that the tag matches `Cargo.toml`, runs the checks, builds the exe and the installer in a job with read-only rights, and a second job attaches both, with their checksums, to the release.
 
 ## License
 
