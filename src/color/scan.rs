@@ -13,6 +13,9 @@ use crate::Hwnd;
 use crate::placement::{BACKGROUND_TOLERANCE, TitleBarScan};
 use crate::win32::to_hwnd;
 
+/// Share of the scan pixels that must have been readable for the scan to count.
+const MIN_READABLE_PERCENT: usize = 50;
+
 /// Result of one title-bar capture. `color` is the median title color (None without native caption bounds),
 /// `scan` the sampled caption rows (None when no pixel could be read).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,12 +73,16 @@ fn plan_points(plan: &CapturePlan) -> Vec<(i32, i32)> {
 }
 
 /// Builds the scan from the pixels read for `plan.scan_rows` (row-major, `plan.width` per row).
-/// Pixels that could not be read count as sentinel, which is never background.
+/// Pixels that could not be read count as sentinel, which is never background, ink or accent. A strip with
+/// fewer than `MIN_READABLE_PERCENT` readable pixels was not painted when captured and gives no scan.
 fn build_scan(
     plan: &CapturePlan,
     pixels: &[Option<[u8; 3]>],
     caption_ink: Option<[u8; 3]>,
 ) -> Option<TitleBarScan> {
+    if !mostly_readable(pixels) {
+        return None;
+    }
     let width = plan.width.max(1) as usize;
     let rows: Vec<Vec<[u8; 3]>> = pixels
         .chunks(width)
@@ -98,6 +105,11 @@ fn build_scan(
         accent,
         rows,
     })
+}
+
+fn mostly_readable(pixels: &[Option<[u8; 3]>]) -> bool {
+    let readable = pixels.iter().flatten().count();
+    readable * 100 >= pixels.len() * MIN_READABLE_PERCENT
 }
 
 /// The pixels that could be read.
@@ -134,6 +146,28 @@ mod tests {
             .collect();
         let scan = build_scan(&plan, &px, None).unwrap();
         assert!(scan.background[0] >= 50, "{:?}", scan.background);
+    }
+
+    #[test]
+    fn a_strip_that_is_mostly_unreadable_gives_no_scan() {
+        let plan = CapturePlan {
+            width: 4,
+            caption_rows: 10,
+            points: vec![],
+            scan_rows: vec![1, 2],
+            window_size: (4, 10),
+            caption_px: 30,
+            dpi: 96,
+            ink_area: None,
+        };
+        let mut px = vec![None; 8];
+        px[0] = Some([7, 7, 7]);
+        assert!(build_scan(&plan, &px, None).is_none());
+        px[1..4].fill(Some([7, 7, 7]));
+        assert!(
+            build_scan(&plan, &px, None).is_some(),
+            "half readable is enough"
+        );
     }
 
     #[test]

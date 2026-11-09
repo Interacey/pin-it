@@ -68,7 +68,7 @@ pub(super) fn capture_plan(h: HWND) -> Option<CapturePlan> {
     let mut window = RECT::default();
     // SAFETY: window is a valid out param.
     unsafe { GetWindowRect(h, &mut window) }.ok()?;
-    let (width, height) = (window.right - window.left, window.bottom - window.top);
+    let (width, height) = window_size(&window)?;
     let dpi = window_dpi(h);
     let caption = caption_rect(h, &window, dpi)?;
     let points = if caption.native {
@@ -77,9 +77,9 @@ pub(super) fn capture_plan(h: HWND) -> Option<CapturePlan> {
         Vec::new()
     };
     let scan_rows = visible_scan_rows(&caption.bounds, height);
-    let caption_rows = (caption.bounds.bottom + CAPTURE_MARGIN).clamp(1, height);
+    let caption_rows = capture_rows(caption.bounds.bottom, height);
     let ink_area = symbol_area(&caption.bounds, dpi, (width, caption_rows));
-    if width <= 0 || (points.is_empty() && scan_rows.is_empty()) {
+    if points.is_empty() && scan_rows.is_empty() {
         return None;
     }
     Some(CapturePlan {
@@ -92,6 +92,21 @@ pub(super) fn capture_plan(h: HWND) -> Option<CapturePlan> {
         dpi,
         ink_area,
     })
+}
+
+/// Width and height of a window rectangle; None when either is not positive (a collapsed window).
+fn window_size(window: &RECT) -> Option<(i32, i32)> {
+    let width = window.right.saturating_sub(window.left);
+    let height = window.bottom.saturating_sub(window.top);
+    (width > 0 && height > 0).then_some((width, height))
+}
+
+/// Rows of the capture bitmap: down to the caption plus `CAPTURE_MARGIN`, at least one, at most the window height.
+/// `Ord::clamp` panics when min > max, so a height below one must not reach it.
+fn capture_rows(caption_bottom: i32, height: i32) -> i32 {
+    caption_bottom
+        .saturating_add(CAPTURE_MARGIN)
+        .clamp(1, height.max(1))
 }
 
 /// The minimize and maximize buttons (the left end of the caption-button group `caption`), cut to the capture bitmap `bitmap` (width, rows).
@@ -215,6 +230,69 @@ fn estimated_caption(frame: RECT, window: &RECT, dpi: u32, maximized: bool) -> C
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const EXTREMES: [i32; 9] = [
+        i32::MIN,
+        i32::MIN + 1,
+        -1000,
+        -1,
+        0,
+        1,
+        1000,
+        i32::MAX - 1,
+        i32::MAX,
+    ];
+
+    #[test]
+    fn a_window_without_positive_width_and_height_has_no_size() {
+        for left in EXTREMES {
+            for right in EXTREMES {
+                let window = RECT {
+                    left,
+                    top: 0,
+                    right,
+                    bottom: 40,
+                };
+                let size = window_size(&window);
+                let expected = right.saturating_sub(left) > 0;
+                assert_eq!(size.is_some(), expected, "x {left}..{right}");
+                let window = RECT {
+                    left: 0,
+                    top: left,
+                    right: 40,
+                    bottom: right,
+                };
+                assert_eq!(
+                    window_size(&window).is_some(),
+                    expected,
+                    "y {left}..{right}"
+                );
+            }
+        }
+        let normal = RECT {
+            left: 10,
+            top: 20,
+            right: 110,
+            bottom: 70,
+        };
+        assert_eq!(window_size(&normal), Some((100, 50)));
+    }
+
+    #[test]
+    fn capture_rows_never_panic_and_stay_within_one_and_the_height() {
+        for bottom in EXTREMES {
+            for height in EXTREMES {
+                let rows = capture_rows(bottom, height);
+                assert!(
+                    rows >= 1 && rows <= height.max(1),
+                    "{bottom} {height}: {rows}"
+                );
+            }
+        }
+        assert_eq!(capture_rows(30, 800), 34);
+        assert_eq!(capture_rows(30, 20), 20);
+        assert_eq!(capture_rows(-50, 800), 1);
+    }
 
     #[test]
     fn sample_points_stay_in_caption_rows() {
