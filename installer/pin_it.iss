@@ -15,6 +15,8 @@
 AppId={{E2D3BC67-742E-4865-AA60-368B5173512E}
 AppName=Pin It
 AppVersion={#AppVersion}
+; Windows file version needs four numeric parts.
+VersionInfoVersion={#AppVersion}.0
 AppPublisher=Interacey
 AppPublisherURL=https://github.com/Interacey/pin-it
 AppSupportURL=https://github.com/Interacey/pin-it
