@@ -24,6 +24,16 @@ pub(super) struct SettingsFile {
     pub(super) path: PathBuf,
     /// Modification time of the file at the last load or save.
     pub(super) mtime: Option<SystemTime>,
+    /// Modification time of a version of the file that did not parse. While the file still has it,
+    /// it is a hand edit in progress: it is neither read again nor overwritten by a save.
+    pub(super) invalid_mtime: Option<SystemTime>,
+}
+
+impl SettingsFile {
+    /// Whether `mtime` is a version of the file that was already read, written or judged invalid.
+    pub(super) fn is_known(&self, mtime: Option<SystemTime>) -> bool {
+        mtime == self.mtime || (mtime.is_some() && mtime == self.invalid_mtime)
+    }
 }
 
 /// The global hotkey: whether the app should have one and which one is registered.
@@ -49,6 +59,9 @@ pub(super) struct App {
     pub(super) prior_topmost: HashSet<Hwnd>,
     /// Windows that left the pin list but did not take the release yet; the sweep retries them.
     pub(super) pending_release: HashSet<Hwnd>,
+    /// Windows whose queued (asynchronous) unpin was accepted while they still had the topmost
+    /// flag: the target applies it later. Not persisted; the request waits in the target's queue.
+    pub(super) queued_release: HashSet<Hwnd>,
     /// Pinned windows whose thread is hung or busy; they stay pinned and are retried by the sweep.
     pub(super) hung: HashSet<Hwnd>,
     pub(super) entries: HashMap<Hwnd, Entry>,
@@ -91,10 +104,12 @@ impl App {
             settings_file: SettingsFile {
                 path: opts.settings_path.clone(),
                 mtime: settings_mtime,
+                invalid_mtime: None,
             },
             pins: PinStack::new(),
             prior_topmost: HashSet::new(),
             pending_release: HashSet::new(),
+            queued_release: HashSet::new(),
             hung: HashSet::new(),
             entries: HashMap::new(),
             colors: ColorCache::new(),

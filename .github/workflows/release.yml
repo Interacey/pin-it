@@ -1,8 +1,9 @@
 # Builds the installer (PinIt-Setup.exe) and the portable PinIt.exe and attaches both, with
-# SHA-256 files, to a GitHub release.
+# SHA-256 files, to a GitHub release. Job `build` has read-only rights; job `publish` only
+# downloads its artifact and creates the release.
 #
 # Publish a release by pushing a version tag:
-#   git tag v0.1.0 && git push origin v0.1.0
+#   git tag v0.1.1 && git push origin v0.1.1
 # The tag must match the version in the [package] table of Cargo.toml. It can also be started by
 # hand from the Actions tab (the files are then only an artifact). Actions are pinned by commit
 # SHA (the tag is in the comment).
@@ -12,6 +13,11 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      dry_publish:
+        description: "Run the publish job without creating a release: lists the files that would be uploaded"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -24,6 +30,8 @@ jobs:
         shell: bash # bash runs with -e, so a failing cargo command fails the step (pwsh would not)
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # toolchain input pins Rust 1.96 (= rust-version in Cargo.toml)
         with:
@@ -54,13 +62,27 @@ jobs:
           cargo clippy --all-targets -- -D warnings
           cargo build --release --locked
 
-  windows:
+      - name: Unit tests that create no windows
+        run: |
+          # The same selection runs in ci.yml and release.yml: change both. The count check fails
+          # the step when a renamed module drops out of the filters (412 tests ran when set).
+          cargo test --lib -- placement::tests placement::group:: placement::maximized:: config::tests color::math:: color::ink:: dial::model:: dial::egg:: dial::jingle:: pin_stack:: exclusions::model:: anim::tests exclusions::layout:: dial::render:: dial::state:: dial::sound:: overlay::render_tests exclusions::render:: color::accent_scan:: placement::firefox_tests windows_filter::slot:: zorder::order:: zorder::anomaly:: tray::model:: tray::command:: app::autostart_sync:: | tee test-output.txt
+          n=$(grep -oE '^running [0-9]+ tests?' test-output.txt | head -n 1 | grep -oE '[0-9]+' || true)
+          echo "tests run: ${n:-none}"
+          if [ -z "$n" ] || [ "$n" -lt 370 ]; then
+            echo "::error::Only ${n:-0} tests ran, expected at least 370. A module in the filter list was probably renamed."
+            exit 1
+          fi
+
+  build:
     needs: check
     runs-on: windows-latest
     permissions:
-      contents: write # only this job publishes the release
+      contents: read # builds third-party code: no write token here, none left in .git/config
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # toolchain input pins Rust 1.96 (= rust-version in Cargo.toml)
         with:
@@ -87,8 +109,7 @@ jobs:
             if ($cmd) { $iscc = $cmd.Source }
           }
           if (-not (Test-Path $iscc)) {
-            choco install innosetup -y --no-progress
-            $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+            throw "ISCC.exe (Inno Setup 6) not found. The windows-latest image has 6.7.1 preinstalled; it was not found, so the image changed."
           }
           & $iscc "/DAppVersion=$version" installer\pin_it.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
@@ -110,6 +131,27 @@ jobs:
             dist/PinIt-Setup.exe.sha256
             dist/PinIt.exe
             dist/PinIt.exe.sha256
+
+  publish:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.dry_publish)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # the only job with a write token; it builds nothing and has no checkout
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: PinIt-windows
+          path: dist
+
+      - name: "Dry run: list the release files"
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          ls -l dist
+          cd dist
+          sha256sum -c PinIt.exe.sha256 PinIt-Setup.exe.sha256
+          echo "A tag run would upload:"
+          for f in PinIt-Setup.exe PinIt-Setup.exe.sha256 PinIt.exe PinIt.exe.sha256; do echo "  dist/$f"; done
 
       - name: Publish release
         if: startsWith(github.ref, 'refs/tags/v')

@@ -28,7 +28,7 @@ pub(crate) use primitives::{is_topmost, pin, unpin};
 #[cfg(test)]
 pub(crate) use {
     activate::test_hooks as activate_hooks,
-    faults::{fail_unpin_of, refuse_next_pin_of, refuse_pin_of},
+    faults::{defer_unpin_of, fail_unpin_of, refuse_next_pin_of, refuse_pin_of},
     guard::is_hung,
     order::is_in_order,
     snapshot::z_order_snapshot,

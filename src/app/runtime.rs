@@ -161,8 +161,9 @@ impl Runtime {
         panic_registry::clear();
         reset_session_flags();
         allow_tray_messages(hwnd);
-        recover_pins(&pins_path_beside(&opts.settings_path));
+        let unreleased = recover_pins(&pins_path_beside(&opts.settings_path));
         let mut app = App::new(h, opts, settings, mtime);
+        app.pending_release.extend(unreleased);
         app.attach_integrations(opts.tray);
         app.apply_startup_settings();
         let ptr = Box::into_raw(Box::new(app));

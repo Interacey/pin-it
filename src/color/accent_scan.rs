@@ -1,6 +1,7 @@
 //! The accent of a window: the largest chromatic region of the title-bar strip that is big enough to be a
 //! button or a banner, not an icon.
 
+use super::capture::SENTINEL;
 use super::math::median_color;
 
 /// Pixels with less chroma (max channel minus min channel) are grey and never count.
@@ -117,7 +118,10 @@ fn bucket(px: [u8; 3]) -> [u8; 3] {
 }
 
 fn counts_as_accent(px: [u8; 3], ctx: &AccentContext) -> bool {
-    chroma(px) >= MIN_CHROMA && !near(px, ctx.bar) && !ctx.ink.is_some_and(|ink| near(px, ink))
+    px != SENTINEL
+        && chroma(px) >= MIN_CHROMA
+        && !near(px, ctx.bar)
+        && !ctx.ink.is_some_and(|ink| near(px, ink))
 }
 
 fn min_area(dpi: u32) -> u64 {
@@ -332,6 +336,18 @@ mod tests {
             ..ctx()
         };
         assert_eq!(dominant_accent(&rows, &ctx), None);
+    }
+
+    #[test]
+    fn unreadable_pixels_are_never_an_accent() {
+        let rows = bar(300, ROWS, &[(100, 160, 0, ROWS, SENTINEL)]);
+        assert_eq!(dominant_accent(&rows, &ctx()), None);
+        let rows = bar(
+            300,
+            ROWS,
+            &[(100, 160, 0, ROWS, SENTINEL), (200, 260, 0, ROWS, BLUE)],
+        );
+        assert_eq!(dominant_accent(&rows, &ctx()), Some(BLUE));
     }
 
     #[test]

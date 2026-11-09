@@ -41,6 +41,10 @@ pub(crate) fn unpin(hwnd: Hwnd) -> Result<(), ApplyError> {
     if super::faults::unpin_fails(hwnd) {
         return Err(ApplyError::Failed(windows::Win32::Foundation::E_FAIL.0));
     }
+    #[cfg(test)]
+    if super::faults::unpin_deferred(hwnd) {
+        return Ok(());
+    }
     set_pos(hwnd, HWND_NOTOPMOST, NO_FOCUS_QUEUED_FLAGS)
 }
 

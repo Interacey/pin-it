@@ -111,15 +111,15 @@ fn write_new_file(path: &Path, text: &str) -> io::Result<()> {
 /// Clears pins left behind by a run that did not shut down: for every listed window that still
 /// exists, belongs to the same process (pid and creation time), is topmost and was not topmost
 /// before Pin It pinned it, removes the topmost flag. Then deletes the file; entries whose
-/// release failed stay in it for the next start.
+/// release failed stay in it, and their windows are returned so the running app keeps retrying them.
 /// Anything that does not match is left alone.
-pub(super) fn recover_pins(path: &Path) {
+pub(super) fn recover_pins(path: &Path) -> Vec<Hwnd> {
     if let Err(e) = guard_write_target(path) {
         warn(&format!("not reading {}: {e}", path.display()));
-        return;
+        return Vec::new();
     }
     let Ok(text) = std::fs::read_to_string(path) else {
-        return;
+        return Vec::new();
     };
     let leftover = match serde_json::from_str::<Vec<SavedPin>>(&text) {
         Ok(list) => list
@@ -133,6 +133,7 @@ pub(super) fn recover_pins(path: &Path) {
         }
     };
     write_pins(path, &leftover);
+    leftover.iter().map(|pin| pin.hwnd).collect()
 }
 
 fn is_stale_pin_of_ours(pin: &SavedPin) -> bool {

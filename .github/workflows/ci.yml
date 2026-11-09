@@ -1,11 +1,17 @@
 # CI: format, lints, release build and the window-free unit tests on Windows (the only target).
 # The full `cargo test` suite is not run here: it opens real windows and needs an interactive
-# desktop with focus, which a runner does not give reliably. Run it locally.
+# desktop with focus, which a runner does not give reliably. Run it locally. Pushes to branches
+# other than main are checked through their pull request.
 name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -15,6 +21,8 @@ jobs:
         shell: bash # bash runs with -e, so a failing cargo command fails the step (pwsh would not)
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # toolchain input pins Rust 1.96 (= rust-version in Cargo.toml)
         with:
@@ -29,4 +37,12 @@ jobs:
 
       - name: Unit tests that create no windows
         run: |
-          cargo test --lib -- placement::tests placement::group:: placement::maximized:: config::tests color::math:: color::ink:: dial::model:: dial::egg:: dial::jingle:: pin_stack:: exclusions::model:: anim::tests exclusions::layout::
+          # The same selection runs in ci.yml and release.yml: change both. The count check fails
+          # the step when a renamed module drops out of the filters (412 tests ran when set).
+          cargo test --lib -- placement::tests placement::group:: placement::maximized:: config::tests color::math:: color::ink:: dial::model:: dial::egg:: dial::jingle:: pin_stack:: exclusions::model:: anim::tests exclusions::layout:: dial::render:: dial::state:: dial::sound:: overlay::render_tests exclusions::render:: color::accent_scan:: placement::firefox_tests windows_filter::slot:: zorder::order:: zorder::anomaly:: tray::model:: tray::command:: app::autostart_sync:: | tee test-output.txt
+          n=$(grep -oE '^running [0-9]+ tests?' test-output.txt | head -n 1 | grep -oE '[0-9]+' || true)
+          echo "tests run: ${n:-none}"
+          if [ -z "$n" ] || [ "$n" -lt 370 ]; then
+            echo "::error::Only ${n:-0} tests ran, expected at least 370. A module in the filter list was probably renamed."
+            exit 1
+          fi
