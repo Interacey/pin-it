@@ -23,6 +23,8 @@ mod settings;
 mod support;
 mod t2_tray_commands;
 mod tray;
+mod v2_release;
+mod v2_settings_reload;
 mod x3_fade;
 mod x3_latency;
 mod x_drag;

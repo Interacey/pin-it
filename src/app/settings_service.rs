@@ -4,6 +4,9 @@
 //! Related parts live next to it: `command_runner` (tray commands), `hotkey_binding`,
 //! `autostart_sync` and `open_settings`.
 
+use std::path::Path;
+use std::time::SystemTime;
+
 use super::logging::{info, warn};
 use super::settings_observers::SettingsEvent;
 use super::state::App;
@@ -33,10 +36,19 @@ fn backup_text(backup: Option<&std::path::Path>) -> String {
 }
 
 impl App {
+    /// Writes the settings, unless the file on disk is a hand edit that does not parse: that text
+    /// is all the user has, and the next reload adopts it once it is valid.
     pub(super) fn save_settings(&mut self) {
         let file = &mut self.settings_file;
+        if file.invalid_mtime.is_some() && file.invalid_mtime == config::modified_time(&file.path) {
+            warn("settings file is invalid, not overwritten; fix it or delete it");
+            return;
+        }
         match config::save_to(&file.path, &self.settings) {
-            Ok(()) => file.mtime = config::modified_time(&file.path),
+            Ok(()) => {
+                file.mtime = config::modified_time(&file.path);
+                file.invalid_mtime = None;
+            }
             Err(e) => warn(&format!("cannot save settings: {e}")),
         }
     }
@@ -45,10 +57,14 @@ impl App {
     /// does not overwrite hand edits. Returns whether the settings were replaced.
     pub(super) fn reload_if_changed(&mut self) -> bool {
         let now = config::modified_time(&self.settings_file.path);
-        if now == self.settings_file.mtime {
+        if self.settings_file.is_known(now) {
             return false;
         }
-        let (settings, status) = config::load_report_from(&self.settings_file.path);
+        let (settings, status) = config::reload_report_from(&self.settings_file.path);
+        if let LoadStatus::Corrupt { backup } = &status {
+            self.keep_invalid_file(now, backup.as_deref());
+            return false;
+        }
         log_load_status(&status);
         match status {
             LoadStatus::Ok | LoadStatus::Lenient { .. } => {
@@ -56,14 +72,25 @@ impl App {
                 self.settings = settings;
                 self.settings.sanitize();
                 self.settings_file.mtime = now;
+                self.settings_file.invalid_mtime = None;
                 true
             }
-            // Deleted, unreadable or corrupt: keep what is in memory; the next save rewrites it.
+            // Deleted or unreadable: keep what is in memory; the next save rewrites it.
             _ => {
                 self.settings_file.mtime = config::modified_time(&self.settings_file.path);
                 false
             }
         }
+    }
+
+    /// The file was edited into something that does not parse: it stays as it is, the settings in
+    /// memory stay, and the file is looked at again only after its next change.
+    fn keep_invalid_file(&mut self, mtime: Option<SystemTime>, copy: Option<&Path>) {
+        warn(&format!(
+            "settings file does not parse, left as it is, settings in use unchanged (copy: {})",
+            backup_text(copy)
+        ));
+        self.settings_file.invalid_mtime = mtime;
     }
 
     /// Sanitizes the settings and tells the observers they changed.

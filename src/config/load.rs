@@ -18,7 +18,7 @@ pub(crate) enum LoadStatus {
     Ok,
     /// The file could not be read (locked, access denied); it is left untouched and defaults are used.
     IoError(String),
-    /// Not usable JSON; moved to `backup` (None if the move failed) and defaults are used.
+    /// Not usable JSON; moved (startup) or copied (reload) to `backup` (None on failure); defaults are used.
     Corrupt { backup: Option<PathBuf> },
     /// Parsed, but these fields (or list elements, as `name[index]` / `name.key`) held invalid
     /// values and were dropped or fell back to their defaults. The original file was copied to
@@ -37,23 +37,36 @@ pub(crate) fn load_from(path: &Path) -> Settings {
     load_report_from(path).0
 }
 
-/// Loads settings and says what happened.
+/// What to do with a file that is not usable JSON.
+type SetAside = fn(&Path) -> Option<PathBuf>;
+
+/// Loads settings at startup and says what happened.
 ///
 /// A missing file gives defaults. A read error keeps the file. A file that is not a JSON object
 /// (or is larger than 1 MiB) is moved to `settings.json.bad-<unix-seconds>`, keeping the newest 3.
 /// A UTF-8 BOM and UTF-16 (with BOM) are accepted. Invalid single fields and single list elements
 /// are dropped individually; the original is then copied to the same kind of backup file.
 pub(crate) fn load_report_from(path: &Path) -> (Settings, LoadStatus) {
+    load_report(path, backup_corrupt)
+}
+
+/// Like `load_report_from` for a file read again while the app runs: an unusable file stays where
+/// it is (a half-saved edit may be completed by the editor) and a copy goes to the backup name.
+pub(crate) fn reload_report_from(path: &Path) -> (Settings, LoadStatus) {
+    load_report(path, backup_copy)
+}
+
+fn load_report(path: &Path, set_aside: SetAside) -> (Settings, LoadStatus) {
     let bytes = match read_capped(path) {
         Ok(Some(b)) => b,
-        Ok(None) => return corrupt(path),
+        Ok(None) => return corrupt(path, set_aside),
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
             return (Settings::default(), LoadStatus::Missing);
         }
         Err(e) => return (Settings::default(), LoadStatus::IoError(e.to_string())),
     };
     let Some(obj) = parse_json_object(&bytes) else {
-        return corrupt(path);
+        return corrupt(path, set_aside);
     };
     let (mut settings, fixed_fields) = settings_from_object(&obj);
     settings.sanitize();
@@ -68,8 +81,8 @@ pub(crate) fn load_report_from(path: &Path) -> (Settings, LoadStatus) {
     (settings, status)
 }
 
-fn corrupt(path: &Path) -> (Settings, LoadStatus) {
-    let backup = backup_corrupt(path);
+fn corrupt(path: &Path, set_aside: SetAside) -> (Settings, LoadStatus) {
+    let backup = set_aside(path);
     (Settings::default(), LoadStatus::Corrupt { backup })
 }
 

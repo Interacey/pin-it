@@ -101,9 +101,9 @@ impl App {
     }
 
     /// Remembers an own "always on top". A window that is topmost only because our earlier release
-    /// has not gone through yet was not topmost before.
+    /// has not gone through yet (failed, or queued in a busy target) was not topmost before.
     fn note_prior_topmost(&mut self, h: Hwnd) {
-        let still_ours = self.pending_release.remove(&h);
+        let still_ours = self.pending_release.remove(&h) | self.queued_release.remove(&h);
         if zorder::is_topmost(h) && !still_ours {
             self.prior_topmost.insert(h);
         }
@@ -165,8 +165,23 @@ impl App {
         }
     }
 
+    /// The unpin is queued in the target, so `Ok` only means "accepted". Until the flag is seen gone
+    /// the window counts as still ours.
+    fn note_queued_release(&mut self, h: Hwnd) {
+        if zorder::is_topmost(h) {
+            self.queued_release.insert(h);
+        }
+    }
+
+    /// Forgets queued releases the target has applied, and those of windows that are gone.
+    fn settle_queued_releases(&mut self) {
+        self.queued_release
+            .retain(|&h| window_alive(h) && zorder::is_topmost(h));
+    }
+
     /// Called by the sweep: tries again every release that did not go through.
     pub(crate) fn retry_pending_releases(&mut self) {
+        self.settle_queued_releases();
         for h in self.pending_releases() {
             let settled = matches!(self.release(h), Ok(()) | Err(ApplyError::Gone));
             if settled {
@@ -183,6 +198,7 @@ impl App {
         }
         if !self.prior_topmost.contains(&h) {
             zorder::unpin(h)?;
+            self.note_queued_release(h);
         }
         self.prior_topmost.remove(&h);
         Ok(())
