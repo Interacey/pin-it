@@ -25,4 +25,5 @@ jobs:
           cargo build --release --locked
 
       - name: Unit tests that create no windows
-        run: cargo test --lib -- placement::tests placement::group:: placement::maximized:: config::tests color::math:: color::ink:: dial::model:: dial::egg:: dial::jingle:: pin_stack:: exclusions::model:: anim::tests exclusions::layout::
+        run: |
+          cargo test --lib -- placement::tests placement::group:: placement::maximized:: config::tests color::math:: color::ink:: dial::model:: dial::egg:: dial::jingle:: pin_stack:: exclusions::model:: anim::tests exclusions::layout::
