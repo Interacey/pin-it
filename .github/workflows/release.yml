@@ -13,6 +13,11 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      dry_publish:
+        description: "Run the publish job without creating a release: lists the files that would be uploaded"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -129,7 +134,7 @@ jobs:
 
   publish:
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.dry_publish)
     runs-on: ubuntu-latest
     permissions:
       contents: write # the only job with a write token; it builds nothing and has no checkout
@@ -139,7 +144,17 @@ jobs:
           name: PinIt-windows
           path: dist
 
+      - name: "Dry run: list the release files"
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          ls -l dist
+          cd dist
+          sha256sum -c PinIt.exe.sha256 PinIt-Setup.exe.sha256
+          echo "A tag run would upload:"
+          for f in PinIt-Setup.exe PinIt-Setup.exe.sha256 PinIt.exe PinIt.exe.sha256; do echo "  dist/$f"; done
+
       - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: |
