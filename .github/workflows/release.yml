@@ -1,0 +1,120 @@
+# Builds the installer (PinIt-Setup.exe) and the portable PinIt.exe and attaches both, with
+# SHA-256 files, to a GitHub release.
+#
+# Publish a release by pushing a version tag:
+#   git tag v0.1.0 && git push origin v0.1.0
+# The tag must match the version in the [package] table of Cargo.toml. It can also be started by
+# hand from the Actions tab (the files are then only an artifact). Actions are pinned by commit
+# SHA (the tag is in the comment).
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+          components: clippy, rustfmt
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+
+      - name: Tag matches the version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os, re, sys, tomllib
+          tag = re.sub(r"^v\.?", "", os.environ["GITHUB_REF_NAME"])
+          with open("Cargo.toml", "rb") as f:
+              version = tomllib.load(f)["package"]["version"]
+          print("tag:", tag, "Cargo.toml:", version)
+          if tag != version:
+              sys.exit(f"Tag {tag} differs from Cargo.toml version {version}")
+          PY
+
+      - name: Format, lints, build
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+          cargo build --release --locked
+
+  windows:
+    needs: check
+    runs-on: windows-latest
+    permissions:
+      contents: write # only this job publishes the release
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+
+      - name: Build the exe
+        shell: pwsh
+        run: |
+          cargo build --release --locked
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item target\release\pin_it.exe dist\PinIt.exe
+
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          $version = python -c "import tomllib; print(tomllib.load(open('Cargo.toml','rb'))['package']['version'])"
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            $cmd = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+            if ($cmd) { $iscc = $cmd.Source }
+          }
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+            $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          }
+          & $iscc "/DAppVersion=$version" installer\pin_it.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
+          Copy-Item installer\Output\PinIt-Setup.exe dist\PinIt-Setup.exe
+
+      - name: Checksums
+        shell: pwsh
+        run: |
+          foreach ($name in "PinIt.exe", "PinIt-Setup.exe") {
+            $hash = (Get-FileHash "dist\$name" -Algorithm SHA256).Hash.ToLower()
+            "$hash  $name" | Out-File "dist\$name.sha256" -Encoding ascii
+          }
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: PinIt-windows
+          path: |
+            dist/PinIt-Setup.exe
+            dist/PinIt-Setup.exe.sha256
+            dist/PinIt.exe
+            dist/PinIt.exe.sha256
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          files: |
+            dist/PinIt-Setup.exe
+            dist/PinIt-Setup.exe.sha256
+            dist/PinIt.exe
+            dist/PinIt.exe.sha256
+          generate_release_notes: true

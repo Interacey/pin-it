@@ -17,11 +17,11 @@ BEGIN
     BEGIN
         BLOCK "040904b0"
         BEGIN
-            VALUE "CompanyName", "Pin It"
+            VALUE "CompanyName", "Interacey"
             VALUE "FileDescription", "Pin It - window pinning tool"
             VALUE "FileVersion", VER_STR
             VALUE "InternalName", "pin_it"
-            VALUE "LegalCopyright", "Copyright (C) 2026 Pin It"
+            VALUE "LegalCopyright", "Copyright (C) 2026 Interacey"
             VALUE "OriginalFilename", "pin_it.exe"
             VALUE "ProductName", "Pin It"
             VALUE "ProductVersion", VER_STR

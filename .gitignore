@@ -4,3 +4,8 @@ Cargo.toml.orig
 *.log
 .vscode/
 scratch/
+.idea/
+.claude/
+Thumbs.db
+/dist/
+/installer/Output/

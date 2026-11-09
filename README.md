@@ -2,6 +2,19 @@
 
 Pin It is a background process for Windows 11 (no console window, not a service). It puts a small pin button in the title bar of other programs' windows. Clicking the button makes the window always on top and brings it to the front with keyboard focus.
 
+## Download (Windows)
+
+Each release on GitHub has two files:
+
+- `PinIt-Setup.exe`: the installer. It installs for the current user without administrator rights into `%LOCALAPPDATA%\Programs\Pin It`, adds a Start menu entry, and lists Pin It under Settings > Apps > Installed apps, where it can be uninstalled. A running Pin It is closed first, so an upgrade over an existing install works. The uninstaller asks whether the settings and the log in `%APPDATA%\PinIt` should be deleted; the default is No.
+- `PinIt.exe`: the same program as a single file. It needs no installation and can be run from any folder.
+
+The files `PinIt-Setup.exe.sha256` and `PinIt.exe.sha256` next to them allow verifying a download. The programs are not code-signed, so Windows SmartScreen warns about them; choose "More info" > "Run anyway".
+
+Pin It does not start with Windows by default. Turn on "Start with Windows" in the tray menu; the installer does not set this. Settings, log and pins are stored in `%APPDATA%\PinIt` for both files (see "Files in `%APPDATA%\PinIt`" below).
+
+To publish a release, set `version` in `Cargo.toml`, commit it, then push a tag with the same number: `git tag v0.1.0 && git push origin v0.1.0`. The `release.yml` workflow builds the exe and the installer and attaches both, with their checksums, to the release.
+
 ## Behavior
 
 - Clicking the button, pressing the hotkey, or the tray command "Pin / unpin current window" pins or unpins a window. A new pin is activated (foreground and keyboard focus) once the window is topmost. If the system refuses the topmost flag at first and the same action settles it, the window is activated too. If it is still refused or hung, it is not activated, and neither is it when the 2 second sweep settles it later. Unpinning never activates.
@@ -68,7 +81,7 @@ Pin It is a background process for Windows 11 (no console window, not a service)
 
 ## Install and run
 
-There is no installer and the executable is not code-signed. Build with Rust 1.96 and the MSVC build tools:
+To build from source, use Rust 1.96 and the MSVC build tools:
 
     cargo build --release
 
@@ -171,3 +184,7 @@ Settings, log and `pins.json` are not written when the file or its folder is a j
   - `hung_target_returns_hung_without_blocking` (src/zorder/tests.rs): a PowerShell window with a sleeping UI thread must give `Hung` without blocking.
   - `busy_target_unpin_is_queued_and_applied_after_resume` (src/zorder/tests.rs): unpin of a busy window returns at once and takes effect after it resumes.
 - `build.rs` embeds `assets/pin_it.rc` (icon, manifest with per-monitor DPI v2, version info) with the `embed-resource` crate.
+
+## License
+
+MIT, see `LICENSE`.

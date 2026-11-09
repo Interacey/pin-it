@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.96"
 description = "Pin button in window title bars: pins windows always on top"
+license = "MIT"
+repository = "https://github.com/Interacey/pin-it"
+authors = ["Interacey"]
 publish = false
 
 [dependencies]
